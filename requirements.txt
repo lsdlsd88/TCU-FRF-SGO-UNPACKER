@@ -1,0 +1,7 @@
+# Toolchain the shipped dist\ exe was built with:
+#   Python   3.14.3  (MSC v.1944 64-bit, AMD64)
+#   MSVC     19.44.35225 for x64  (Visual Studio 2022 17.14) for sgo_fast.dll
+# Newer patch releases are normally fine; keep Python 3.14.x so the bundled
+# runtime matches the one the exe was tested with.
+pycryptodome==3.23.0
+pyinstaller==6.19.0

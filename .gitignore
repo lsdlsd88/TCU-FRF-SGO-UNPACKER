@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+build/
+*.spec
+dist/*.log
+sgo_fast.obj
+sgo_fast.exp
+sgo_fast.lib
+dist/index/
+dist/settings.json
+_MEI*/
+dist/_MEI*/

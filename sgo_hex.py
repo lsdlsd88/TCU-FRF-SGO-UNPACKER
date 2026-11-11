@@ -58,7 +58,21 @@ class HexWindow:
         self.last_scan = None
         self.window = tk.Toplevel(parent)
         self.window.title(("EEPROM · " if self.is_eeprom else "Flash · ") + self.path.name)
-        self.window.geometry("720x713")
+        # Geometry is in real pixels; these sizes are 96-dpi units.
+        try:
+            scale = float(self.window.tk.call("tk", "scaling")) * 72.0 / 96.0
+        except Exception:
+            scale = 1.0
+        self.ui_scale = scale
+        width = round(720 * scale)
+        height = round(713 * scale)
+        # Keep the window on screen: at 125% the 96-dpi height would exceed a
+        # 1366x768-class display once DPI is honoured.
+        screen_w = self.window.winfo_screenwidth()
+        screen_h = self.window.winfo_screenheight()
+        width = min(width, screen_w - round(80 * scale))
+        height = min(height, screen_h - round(60 * scale))
+        self.window.geometry(f"{width}x{height}")
         self.window.minsize(560, 520)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         frame = ttk.Frame(self.window, padding=8)
@@ -88,7 +102,7 @@ class HexWindow:
         ttk.Button(toolbar, text="▶|", width=3,
                    command=self.last_change).pack(side="left", padx=(3, 10))
         self.offset = tk.StringVar(value="00000000")
-        entry = ttk.Entry(toolbar, textvariable=self.offset, width=9, font=("Consolas", 9))
+        entry = ttk.Entry(toolbar, textvariable=self.offset, width=9, font=("Consolas", 10))
         entry.pack(side="left")
         entry.bind("<Return>", lambda _: self.jump())
         ttk.Button(toolbar, text="Go", width=3, command=self.jump).pack(side="left", padx=3)
@@ -96,13 +110,13 @@ class HexWindow:
         self.identifiers = flash_identity(self.data)
         self.identity_text = tk.StringVar(value=identity_text(self.identifiers))
         self.identity_label = ttk.Label(frame, textvariable=self.identity_text,
-                                        font=("Segoe UI", 8), wraplength=535, justify="left")
+                                        font=("Segoe UI", 9), wraplength=535, justify="left")
         self.identity_label.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 6))
         frame.bind("<Configure>", lambda event: self.identity_label.configure(
             wraplength=max(250, event.width - 16)))
         ttk.Label(frame, text="Offset     00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F   ASCII",
-                  font=("Consolas", 8)).grid(row=2, column=0, sticky="w")
-        self.text = tk.Text(frame, wrap="none", font=("Consolas", 8), width=76, height=16,
+                  font=("Consolas", 9)).grid(row=2, column=0, sticky="w")
+        self.text = tk.Text(frame, wrap="none", font=("Consolas", 10), width=76, height=16,
                             padx=2, pady=2, relief="sunken", cursor="arrow", takefocus=True)
         # Fixed 16-line hex pane: the 2D plot below takes the spare height.
         self.text.grid(row=3, column=0, sticky="new")

@@ -161,7 +161,11 @@ def decode(sgo, profile="auto", table=None):
         else:
             profile = legacy_probe(sgo.blocks)
             if profile is None:
-                raise ValueError("No verified automatic decoder for this SGO. Select its family/profile explicitly.")
+                formats = ", ".join(f"0x{value:02X}" for value in
+                                    sorted({b["format"] for b in sgo.blocks}))
+                raise ValueError(
+                    f"No verified automatic decoder for this SGO (block formats "
+                    f"{formats}). Select its family/profile explicitly.")
     if profile == "dq250-early" and not early_blocks(sgo.blocks):
         raise ValueError("Early DQ250 only supports verified format-1 software/parameter layouts")
     if profile in FAMILY_TABLE_SOURCES or profile == "dq250-early":
@@ -183,6 +187,27 @@ def decode(sgo, profile="auto", table=None):
             start, data = b["id_be"], sgo.decode_block(i, table, cipher=cipher)
         segments.append((start, data, f"SGO block {i}"))
     return profile, expand_segments(sgo, profile, segments)
+
+
+SUPPORTED_BLOCK_FORMATS = {0x00, 0x01, 0x03}
+
+
+def unsupported_reason(sgo):
+    """Why no decoder here can unpack this SGO, or None when one can.
+
+    Block format alone is not proof: several legacy containers declare their
+    record-coded blocks as 0x11 and still decode through a legacy key (the 8J0
+    8J0907404M set does). The legacy probe is only paid for unknown formats.
+    """
+    formats = sorted({block["format"] for block in sgo.blocks})
+    unknown = [value for value in formats if value not in SUPPORTED_BLOCK_FORMATS]
+    if not unknown:
+        return None
+    if legacy_probe(sgo.blocks) is not None:
+        return None
+    shown = ", ".join(f"0x{value:02X}" for value in unknown)
+    return (f"block format {shown} is not supported: no family table, no legacy "
+            "key and no LZSS/record packing here decodes it")
 
 
 def default_size(profile, segments):

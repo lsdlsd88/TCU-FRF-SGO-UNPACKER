@@ -11,7 +11,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 import sgo_tables
-from sgo_image import GUI_PROFILES as PROFILES, build_image
+from sgo_image import GUI_PROFILES as PROFILES, build_image, unsupported_reason
 from sgo_unpack import SGO
 
 ASSETS = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -122,12 +122,73 @@ def process_diagnostics(library_root):
     return notes
 
 
+def enable_dpi_awareness():
+    """Opt into Windows per-monitor DPI before Tk creates a window.
+
+    Without this, Windows stretches the whole window bitmap on a 125-150%
+    display and every font turns blurry. The three calls are tried in order
+    because the older APIs are the only ones available on Windows 7/8.
+    """
+    import ctypes
+
+    try:
+        if ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):
+            return "per-monitor-v2"
+    except Exception:
+        pass
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        return "per-monitor"
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+        return "system"
+    except Exception:
+        return "unaware"
+
+
+def apply_tk_scaling(root):
+    """Map Tk font points to this window's real pixels (96 dpi -> 96/72)."""
+    import ctypes
+
+    try:
+        dpi = ctypes.windll.user32.GetDpiForWindow(root.winfo_id()) or 96
+    except Exception:
+        dpi = 96
+    root.tk.call("tk", "scaling", dpi / 72.0)
+    return dpi
+
+
+def apply_fonts(root):
+    """One set of named fonts, sized for legibility on a 100% display."""
+    from tkinter import font as tkfont
+
+    for name, size, weight in (("TkDefaultFont", 10, "normal"),
+                               ("TkTextFont", 10, "normal"),
+                               ("TkMenuFont", 10, "normal"),
+                               ("TkHeadingFont", 10, "bold"),
+                               ("TkFixedFont", 10, "normal")):
+        try:
+            tkfont.nametofont(name).configure(
+                family="Consolas" if name == "TkFixedFont" else "Segoe UI",
+                size=size, weight=weight)
+        except Exception:
+            pass
+
+
 class App:
     def __init__(self, root):
         self.root = root
+        dpi = apply_tk_scaling(root)
+        apply_fonts(root)
+        # Geometry is in real pixels, so the layout sizes are expressed in
+        # 96-dpi units and multiplied by the window scale (125% -> 1.25).
+        self.ui_scale = dpi / 96.0
+        scale = self.ui_scale
         root.title("TCU FRF SGO Unpacker")
-        root.geometry("572x408")
-        root.minsize(480, 300)
+        root.geometry(f"{round(572 * scale)}x{round(408 * scale)}")
+        root.minsize(round(480 * scale), round(300 * scale))
         root.resizable(True, True)
         self.events = queue.Queue()
         self.busy = False
@@ -162,19 +223,19 @@ class App:
         style = ttk.Style()
         if "vista" in style.theme_names():
             style.theme_use("vista")
-        style.configure("TLabel", font=("Segoe UI", 9))
-        style.configure("TButton", font=("Segoe UI", 9), padding=(5, 2))
-        style.configure("Small.TLabel", foreground="#536176", font=("Segoe UI", 8))
+        style.configure("TLabel", font="TkDefaultFont")
+        style.configure("TButton", font="TkDefaultFont", padding=(6, 3))
+        style.configure("Small.TLabel", foreground="#536176", font=("Segoe UI", 9))
         frame = ttk.Frame(root, padding=10)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
         self.path_row(frame, 0, "Stock file", self.source, self.choose_source, "Open")
-        self.path_row(frame, 1, "Output", self.output, self.choose_output, "Export BIN")
+        self.path_row(frame, 1, "Output", self.output, self.choose_output, "Save as…")
         self.path_row(frame, 2, "Library folder", self.library, self.choose_library,
                       "Browse")
         ttk.Label(frame, text="Type").grid(row=3, column=0, sticky="w", pady=4)
         combo = ttk.Combobox(frame, textvariable=self.profile, state="readonly",
-                             values=sorted(PROFILES.values()), font=("Segoe UI", 9))
+                             values=sorted(PROFILES.values()), font="TkDefaultFont")
         combo.grid(row=3, column=1, columnspan=2, sticky="ew", pady=4)
         combo.bind("<<ComboboxSelected>>", lambda _: self.inspect())
         ttk.Label(frame, textvariable=self.info, style="Small.TLabel").grid(
@@ -215,7 +276,7 @@ class App:
         self.progress.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(8, 5))
         self.status_label = ttk.Label(frame, textvariable=self.status, wraplength=490)
         self.status_label.grid(row=7, column=0, columnspan=3, sticky="w", pady=(0, 5))
-        self.log = scrolledtext.ScrolledText(frame, height=3, wrap="word", font=("Consolas", 8),
+        self.log = scrolledtext.ScrolledText(frame, height=3, wrap="word", font=("Consolas", 10),
                                              bg="#f3f6fa", relief="sunken", padx=5, pady=3,
                                              state="disabled", takefocus=1)
         self.log.grid(row=8, column=0, columnspan=3, sticky="nsew")
@@ -242,7 +303,8 @@ class App:
             self.advanced.grid_remove()
         self.advanced_button.configure(text="Advanced ▴" if self.expanded else "Advanced ▾")
         self.root.update_idletasks()
-        self.root.geometry(f"{self.root.winfo_width()}x{672 if self.expanded else 408}")
+        height = 672 if self.expanded else 408
+        self.root.geometry(f"{self.root.winfo_width()}x{round(height * self.ui_scale)}")
 
     def path_row(self, parent, row, label, variable, command, button_text="Browse"):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=5)
@@ -405,9 +467,9 @@ class App:
         frame = ttk.Frame(dialog, padding=14)
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="TCU SGO / FRF Unpacker",
-                  font=("Segoe UI", 11, "bold")).pack(anchor="w")
+                  font=("Segoe UI", 12, "bold")).pack(anchor="w")
         ttk.Label(
-            frame, wraplength=560, justify="left", font=("Segoe UI", 9),
+            frame, wraplength=560, justify="left", font=("Segoe UI", 10),
             text=(
                 "Turns a factory VAG transmission update into a full flash image, "
                 "and puts a tuned read back to stock using the closest factory "
@@ -468,6 +530,8 @@ class App:
                                data=getattr(self, "_frf_image", None))
             return window
         except (OSError, ValueError) as exc:
+            self.write(f"\n*** CANNOT OPEN FLASH: {Path(path).name}")
+            self.write(f"    {exc}")
             messagebox.showerror("Cannot open flash", str(exc))
 
     def clear_index(self):
@@ -705,8 +769,16 @@ class App:
             total = sum(b["decomp_be"] for b in sgo.blocks)
             formats = ", ".join(f"{b['format']:02X}" for b in sgo.blocks)
             self.info.set(f"SW {sgo.version or '—'} · {len(sgo.blocks)} block(s) · {total:,} bytes · format {formats}")
-            self.status.set("Ready to unpack.")
             self.write(sgo.summary())
+            reason = unsupported_reason(sgo)
+            if reason:
+                self.status.set("Cannot decode this SGO: " + reason)
+                self.write("")
+                self.write("*** CANNOT DECODE THIS SGO")
+                self.write("    " + reason)
+                self.write("    Unpacking and Open flash would fail with this message.")
+                return
+            self.status.set("Ready to unpack.")
         except (OSError, ValueError) as exc:
             self.status.set(str(exc))
             self.write("Cannot inspect: " + str(exc))
@@ -735,10 +807,18 @@ class App:
                     reference_path=self.reference.get() or None)
 
     def run(self):
+        # Log the press itself: if this line never appears, the click never
+        # reached this button (disabled, or a different button was pressed).
+        self.write("\nUnpack requested: " + (self.source.get() or "(no stock file)"))
         if self.busy:
+            self.write("    ignored: a decode is already running")
             return
         try:
             options = self.options()
+            if not getattr(self, "_frf_family", None):
+                reason = unsupported_reason(SGO(options["filename"]).parse())
+                if reason:
+                    raise ValueError(reason)
             target = Path(options["output"])
             # This GUI confirmation protects existing output; no source is overwritten.
             candidates = [target, target.with_suffix(target.suffix + ".json")]
@@ -746,8 +826,12 @@ class App:
                 candidates += [target.with_name(f"{target.stem}.{part}.bin") for part in ("flash", "mcu")]
             if any(p.exists() for p in candidates) and not messagebox.askyesno(
                     "Replace output?", "One or more output files already exist. Replace those output files?"):
+                self.write("    cancelled: output already exists")
                 return
-        except (OSError, ValueError) as exc:
+        except BaseException as exc:
+            self.write("\n*** CANNOT UNPACK: " + Path(self.source.get()).name)
+            self.write("    {}: {}".format(type(exc).__name__, exc))
+            self.status.set("Cannot unpack: " + str(exc))
             messagebox.showerror("Cannot unpack", str(exc))
             return
         self.busy = True
@@ -768,8 +852,10 @@ class App:
                     self.events.put((True, manifest))
                 else:
                     self.events.put((True, build_image(**options)))
-            except Exception as exc:
-                self.events.put((False, str(exc)))
+            except BaseException as exc:
+                # BaseException too: a worker that dies silently used to leave
+                # the button disabled with nothing in the log.
+                self.events.put((False, "{}: {}".format(type(exc).__name__, exc)))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -866,8 +952,10 @@ def main():
         except Exception:
             pass
         return 0
+    aware = enable_dpi_awareness()
     root = tk.Tk()
     app = App(root)
+    app.dpi_mode = aware
     if args.smoke_test:
         root.withdraw()
         root.update()

@@ -3,8 +3,6 @@ $sgoBuildRoot = $PSScriptRoot
 
 # Hot loops (dsg_decrypt / lzss10 / lzz22) are compiled to sgo_fast.dll and
 # loaded with ctypes; sgo_frf falls back to Python if it is ever missing.
-# The shipped DLL was compiled with MSVC 19.44.35225 for x64 (VS 2022 17.14)
-# and the exe with Python 3.14.3; see requirements.txt for the exact set.
 $vcdir = 'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat'
 $dll = Join-Path $sgoBuildRoot 'sgo_fast.dll'
 if (-not (Test-Path $dll)) {

@@ -843,12 +843,23 @@ class App:
         def worker():
             try:
                 if getattr(self, "_frf_family", None):
-                    import shutil
-                    shutil.copyfile(options["filename"], options["output"])
+                    # Write the decoded image, never the container: copying the
+                    # source here used to hand back the FRF/ODX/zip bytes with a
+                    # .bin name.
+                    image = bytes(getattr(self, "_frf_image", b""))
+                    if not image:
+                        raise ValueError("no decoded image in memory; reopen the container")
+                    Path(options["output"]).write_bytes(image)
+                    import hashlib
                     manifest = {"output": options["output"],
-                                "output_size": Path(options["output"]).stat().st_size,
+                                "output_size": len(image),
                                 "profile": self._frf_family,
-                                "source": options["filename"]}
+                                "source": options["filename"],
+                                "decoded_bytes": len(image),
+                                "missing_bytes": 0,
+                                "missing_region_source": "none (decoded container image)",
+                                "output_sha256": hashlib.sha256(image).hexdigest(),
+                                "part_exports": []}
                     self.events.put((True, manifest))
                 else:
                     self.events.put((True, build_image(**options)))

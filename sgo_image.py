@@ -210,16 +210,35 @@ def unsupported_reason(sgo):
             "key and no LZSS/record packing here decodes it")
 
 
+# Full device flash size per modern family. An SGO only has to fill part of it
+# (the update leaves boot areas alone), so the exported image is padded with the
+# profile fill byte up to this floor. Placement is not part of this table: SGO
+# blocks carry their own addresses. vl381 has no verified read, so it stays at
+# the block end rather than guessing a size.
+DEVICE_SIZES = {
+    # 0AM bench reads are 0x180000; one older 0CW dump is 0x178000. Pad to the
+    # larger of the two so no version is ever truncated (a 32 KiB FF tail is
+    # harmless, a truncated tail is not).
+    "dq200": 0x180000,
+    "dq200mqb": 0x180000,
+    "dq250": 0x180000,
+    "dq250c": 0x180000,
+    "dq250-early": 0x70000,
+    "dq381": 0x280000,
+    "dq400e": 0x2A0000,
+    "dq500temic": 0x178000,
+    "dl382": 0x280000,
+    "dl501": 0x280000,
+    "zf8hp": 0x200000,
+}
+
+
 def default_size(profile, segments):
     end = max((start + len(data) for start, data, _ in segments), default=0)
-    if profile == "dq200":
-        return max(0x178000, end)
-    if profile == "dq250-early":
-        return max(0x70000, end)
-    if profile in ("dq250", "dq250c"):
-        return max(0x180000, end)
     if profile in LEGACY:
         return max(LEGACY[profile][2], end)
+    if profile in DEVICE_SIZES:
+        return max(DEVICE_SIZES[profile], end)
     return end
 
 

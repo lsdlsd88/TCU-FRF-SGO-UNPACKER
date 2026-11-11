@@ -51,7 +51,11 @@ IMAGE_SIZE = 1572864
 # (no DQ381 FRF + read pair in the collection yet).
 DQ381_OFFSETS = {"FD_01DATA": 0x10200, "FD_02DATA": 0x30200,
                  "FD_03DATA": 0x140200}
-DQ381_IMAGE_SIZE = 0x180000
+# Device flash size, not the update extent: a bench read of this family
+# (R5F72549R, DQ381 8W0... and DQ500 0DL300011N) is 0x280000 with the boot area
+# above 0x180000. The update only carries the first 0x180000 bytes, so the rest
+# is padded with 0xFF like every other family's fixed device size.
+DQ381_IMAGE_SIZE = 0x280000
 DQ381_AES_KEY = bytes.fromhex("000102030405060708090A0B0C0D0E0F")
 DQ381_AES_IV = bytes.fromhex("101112131415161718191A1B1C1D1E1F")
 

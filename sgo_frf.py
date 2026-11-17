@@ -283,6 +283,77 @@ def lzz22(data: bytes, uncompressed_size: int) -> bytes:
     return bytes(out)
 
 
+def compress_lzz22(data: bytes) -> bytes:
+    """Compress to ODX method-0x22 LZZ -- the inverse of lzz22() above.
+
+    Greedy longest-match over 3-byte hash chains: 11-bit window (2047), 5-bit
+    match length (3..31), inverted flag bits MSB-first, never emitting the
+    displacement 0 that lzz22() rejects. Many LZ encodings decode to the same
+    bytes, so the output is not bit-identical to the factory packer, but
+    ``lzz22(compress_lzz22(x), len(x)) == x`` for every input x. Verified
+    round-trip through this module's own lzz22 on real 4G0927158 firmware plus a
+    worst-case / edge battery. Pure Python (no DLL); fast enough for a one-shot
+    repack of a ~1.3 MB AL551/AL552 block, which is the point: method-0x22 is
+    the one keyless, fully reversible container, so a decoded block can be
+    edited and packed back into a flashable image.
+    """
+    window = 0x7FF      # 11-bit displacement
+    max_match = 31      # 5-bit count field
+    min_match = 3       # a 2-byte reference only pays off from 3 bytes up
+    max_chain = 256     # hash-chain walk cap (speed vs. ratio)
+    n = len(data)
+    out = bytearray()
+    head: dict[int, int] = {}
+    prev = [-1] * n
+
+    def h3(p):
+        return (data[p] << 16) | (data[p + 1] << 8) | data[p + 2]
+
+    def insert(p):
+        if p + 2 < n:
+            key = h3(p)
+            prev[p] = head.get(key, -1)
+            head[key] = p
+
+    i = 0
+    while i < n:
+        flag_pos = len(out)
+        out.append(0)
+        flags = 0
+        for bit in range(8):
+            if i >= n:
+                break
+            best_len, best_disp = 0, 0
+            if i + 2 < n:
+                cand = head.get(h3(i), -1)
+                chain = 0
+                while cand >= 0 and (i - cand) <= window and chain < max_chain:
+                    disp = i - cand
+                    length = 0
+                    while (length < max_match and i + length < n
+                           and data[i + length] == data[i - disp + length]):
+                        length += 1
+                    if length > best_len:
+                        best_len, best_disp = length, disp
+                        if length >= max_match:
+                            break
+                    cand = prev[cand]
+                    chain += 1
+            if best_len >= min_match:
+                flags |= 1 << (7 - bit)
+                out.append((best_len << 3) | ((best_disp >> 8) & 0x07))
+                out.append(best_disp & 0xFF)
+                for k in range(best_len):
+                    insert(i + k)
+                i += best_len
+            else:
+                out.append(data[i])
+                insert(i)
+                i += 1
+        out[flag_pos] = flags
+    return bytes(out)
+
+
 def extract_odx_dq250(odx_bytes: bytes, dsg_key: bytes):
     """Extract DRIVER/ASW/CAL from a DQ250-MQB ODX; returns (image, blocks)."""
     root = ET.fromstring(odx_bytes)
